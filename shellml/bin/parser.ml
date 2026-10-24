@@ -23,14 +23,19 @@ let whitespace = take_while Char.is_whitespace
 let lexeme parser = parser <* whitespace
 
 let name =
-  let is_ident_char c = Char.is_letter c || c == '_' in
-  take_while is_ident_char
+  let is_ident_char c = Char.is_letter c || c = '_' in
+  take_while is_ident_char |> lexeme
 
 let string s = lexeme (string s) *> return ()
 
+let int_of_string i =
+  try Int.of_string i |> return
+  with _ -> fail "int of string conversion failed"
+
 let integer =
-  let+ i = take_while Char.is_digit in
-  IntLit (Int.of_string i)
+  let* i = take_while Char.is_digit in
+  let+ i = int_of_string i in
+  IntLit i
 
 (* N.B. let* is just do-notation *)
 
@@ -40,8 +45,9 @@ let ident =
   else return @@ Ident i
 
 let keyword kw =
-  let* i = name in
-  if i == kw then return () else fail ("expected keyword " ^ kw)
+  print_endline (dump kw);
+  let* i = lexeme name in
+  if i = kw then return () else fail ("expected keyword " ^ kw)
 
 (* Ignore parens (operators point away from them) *)
 let parens p = string "(" *> p <* string ")"
@@ -49,8 +55,27 @@ let parens p = string "(" *> p <* string ")"
 let expr_parser =
   fix (fun expr_parser ->
       let simple = choice [ parens expr_parser; integer; ident ] in
+      let op_ext =
+        both
+          (choice
+             [
+               string "+" *> return Add;
+               string "-" *> return Sub;
+               string "*" *> return Mul;
+               string "/" *> return Div;
+             ])
+          simple
+      in
+      lift2
+        (fun left ops ->
+          if List.is_empty ops then left
+          else
+            List.fold_left
+              (fun acc (op, right) -> BinOp (acc, op, right))
+              left ops)
+        simple (op_ext |> many)
       (* <?> associates name with parser *)
-      simple <?> "expression")
+      <?> "expression")
 
 let item_parser =
   let ty =
@@ -76,11 +101,12 @@ let item_parser =
           ])
   in
   let param = both name (string ":" *> ty) in
-  lift4
-    (fun name params ret_ty body -> ItemFun { name; params; ret_ty; body })
-    (keyword "fun" *> name)
-    (many1 param |> parens)
-    (string ":" *> ty)
-    expr_parser
+  whitespace
+  *> lift4
+       (fun name params ret_ty body -> ItemFun { name; params; ret_ty; body })
+       (keyword "fun" *> name)
+       (sep_by (string ",") param |> parens)
+       (string ":" *> ty)
+       (string "=" *> expr_parser)
 
 let run_parser p = parse_string ~consume:All p
