@@ -110,8 +110,8 @@ let let_bind expr =
   keyword "let"
   *> lift2
        (fun bindings body -> Let (bindings, body))
-       ((* sep_by1 (string ";") *) List.singleton <$> binding)
-       expr
+       (sep_by1 (string ";") binding)
+       (keyword "in" *> expr)
 
 let if_else expr =
   keyword "if"
