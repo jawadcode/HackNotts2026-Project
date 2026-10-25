@@ -1,6 +1,7 @@
 open Angstrom
 open Batteries
 open Ast
+open Utils
 
 let keywords =
   Set.of_list
@@ -100,8 +101,7 @@ let item_parser =
         let list_ty =
           let+ list_type = keyword "List" *> keyword "of" *> ty_parser in
           ListTy list_type
-        in
-        let fun_ty =
+        and fun_ty =
           let+ in_ty, out_ty =
             keyword "Fun" *> keyword "of"
             *> both ty_parser (string "->" *> ty_parser)
@@ -111,19 +111,49 @@ let item_parser =
         choice
           [
             keyword "Unit" *> return UnitTy;
+            keyword "Bool" *> return BoolTy;
             keyword "Int" *> return IntTy;
             keyword "String" *> return StringTy;
             list_ty;
             fun_ty;
           ])
+  and autocurry name params ret_ty (body : expr) =
+    (* It was pain and suffering to compute these return types *)
+    let fold_ret_ty tys =
+      List.fold_right (fun ty acc -> FunTy (ty, acc)) tys ret_ty
+    in
+    let tys = params |> List.tl |> List.map snd in
+    let ret_tys = tys |> unconsing |> List.map fold_ret_ty in
+    List.iter (fun ty -> print_endline (string_of_type ty)) ret_tys;
+    match (params, ret_tys) with
+    | [], [] -> failwith "impossibru"
+    | head :: tail, ret_tys ->
+        ItemFun
+          {
+            name;
+            param = head;
+            ret_ty = fold_ret_ty tys;
+            body =
+              (let ts = List.combine tail ret_tys in
+               List.fold_right
+                 (fun ((param, param_ty), ret_ty) acc ->
+                   Lam { param; param_ty; ret_ty; body = acc })
+                 ts body);
+          }
+    | _ -> failwith "zoinks"
   in
   let param = both name (string ":" *> ty) in
   whitespace
   *> lift4
-       (fun name params ret_ty body -> ItemFun { name; params; ret_ty; body })
+       (fun name params ret_ty body -> autocurry name params ret_ty body)
        (keyword "fun" *> name)
-       (sep_by (string ",") param |> parenthesise)
+       (sep_by1 (string ",") param |> parenthesise)
        (string ":" *> ty)
        (string "=" *> expr_parser)
+
+(* val add3 : int -> string -> float -> int *)
+
+(* let add3 (x : int) : string -> float -> int = *)
+(*  fun (y : string) : (float -> int) -> fun (z : float) : int -> 123 *)
 
 let run_parser p = parse_string ~consume:All p

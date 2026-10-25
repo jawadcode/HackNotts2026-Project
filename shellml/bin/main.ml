@@ -2,7 +2,7 @@ open Batteries
 open Parser
 open Ast
 
-let test = "fun id(x : Int, y : Int, z : Int) : Int = x + y + z"
+let test = "fun id(x : Int, y : Bool, z : String) : Int = x"
 (* let test = "((((123))))" *)
 
 let () =

@@ -1,10 +1,5 @@
 type item =
-  | ItemFun of {
-      name : string;
-      params : (string * ty) list;
-      ret_ty : ty;
-      body : expr;
-    }
+  | ItemFun of { name : string; param : string * ty; ret_ty : ty; body : expr }
 
 and expr =
   | Unit
@@ -13,6 +8,7 @@ and expr =
   | Ident of string
   | List of expr list
   | BinOp of expr * bop * expr
+  | Lam of { param : string; param_ty : ty; ret_ty : ty; body : expr }
   | Call of expr * expr
   | Let of (string * ty * expr) list * expr
   | IfElse of expr * expr * expr
@@ -42,14 +38,14 @@ let join sep strings =
       head ^ List.fold_left (fun acc param -> acc ^ sep ^ param) "" tail
 
 (* ppx_show requires a pre-historic OCaml version 😠 *)
-let rec string_of_item (ItemFun { name; params; ret_ty; body }) =
-  let string_of_params params =
-    let string_of_param (name, ty) =
-      Printf.sprintf "%s: %s" name (string_of_type ty)
-    in
-    List.map string_of_param params |> join ", "
+let rec string_of_item (ItemFun { name; param; ret_ty; body }) =
+  (* let string_of_params params = *)
+  let string_of_param (name, ty) =
+    Printf.sprintf "%s: %s" name (string_of_type ty)
+    (* in *)
+    (* List.map string_of_param params |> join ", " *)
   in
-  Printf.sprintf "fun %s(%s) : %s = %s" name (string_of_params params)
+  Printf.sprintf "fun %s(%s) : %s = %s" name (string_of_param param)
     (string_of_type ret_ty) (string_of_expr body)
 
 and string_of_type = function
@@ -71,6 +67,9 @@ and string_of_expr = function
   | BinOp (lhs, op, rhs) ->
       Printf.sprintf "(%s %s %s)" (string_of_expr lhs) (string_of_bop op)
         (string_of_expr rhs)
+  | Lam { param; param_ty; ret_ty; body } ->
+      Printf.sprintf "fun (%s : %s) : %s -> %s" param (string_of_type param_ty)
+        (string_of_type ret_ty) (string_of_expr body)
   | Call (f, arg) ->
       Printf.sprintf "(%s %s)" (string_of_expr f) (string_of_expr arg)
   | Let (bindings, body) ->
