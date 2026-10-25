@@ -17,9 +17,23 @@ and expr =
   | Let of (string * ty * expr) list * expr
   | IfElse of expr * expr * expr
 
-and ty = UnitTy | IntTy | StringTy | ListTy of ty | FunTy of ty * ty
-and bop = Add | Sub | Mul | Div
+and ty = UnitTy | BoolTy | IntTy | StringTy | ListTy of ty | FunTy of ty * ty
 
+(* TODO: Add int comparison ops *)
+and bop =
+  | Add
+  | Sub
+  | Mul
+  | Div
+  | Eq
+  | Less
+  | Greater
+  | And
+  | Or
+  | Cons
+  | Concat
+
+(* The things we do for pretty output *)
 let join sep strings =
   match strings with
   | [] -> failwith "nuh uh"
@@ -27,12 +41,12 @@ let join sep strings =
   | head :: tail ->
       head ^ List.fold_left (fun acc param -> acc ^ sep ^ param) "" tail
 
+(* ppx_show requires a pre-historic OCaml version 😠 *)
 let rec string_of_item (ItemFun { name; params; ret_ty; body }) =
   let string_of_params params =
     let string_of_param (name, ty) =
       Printf.sprintf "%s: %s" name (string_of_type ty)
     in
-    (* The things we do for pretty output *)
     List.map string_of_param params |> join ", "
   in
   Printf.sprintf "fun %s(%s) : %s = %s" name (string_of_params params)
@@ -40,6 +54,7 @@ let rec string_of_item (ItemFun { name; params; ret_ty; body }) =
 
 and string_of_type = function
   | UnitTy -> "Unit"
+  | BoolTy -> "Bool"
   | IntTy -> "Int"
   | StringTy -> "String"
   | ListTy inner -> "List of " ^ string_of_type inner
@@ -73,4 +88,15 @@ and string_of_expr = function
       Printf.sprintf "if %s then %s else %s" (string_of_expr cond)
         (string_of_expr then_) (string_of_expr else_)
 
-and string_of_bop = function Add -> "+" | Sub -> "-" | Mul -> "*" | Div -> "/"
+and string_of_bop = function
+  | Add -> "+"
+  | Sub -> "-"
+  | Mul -> "*"
+  | Div -> "/"
+  | And -> "and"
+  | Or -> "or"
+  | Eq -> "=="
+  | Less -> "<"
+  | Greater -> ">"
+  | Cons -> "::"
+  | Concat -> "++"

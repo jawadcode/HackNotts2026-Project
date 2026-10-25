@@ -17,6 +17,8 @@ let keywords =
       "List";
       "of";
       "Fun";
+      "And";
+      "Or";
     ]
 
 let whitespace = take_while Char.is_whitespace
@@ -50,11 +52,19 @@ let keyword kw =
   if i = kw then return () else fail ("expected keyword " ^ kw)
 
 (* Ignore parens (operators point away from them) *)
-let parens p = string "(" *> p <* string ")"
+let parenthesise p = string "(" *> p <* string ")"
+
+let list_literal elem =
+  let+ l = string "[" *> many elem <* string "]" in
+  List l
 
 let expr_parser =
   fix (fun expr_parser ->
-      let simple = choice [ parens expr_parser; integer; ident ] in
+      let simple =
+        choice
+          [ parenthesise expr_parser; list_literal expr_parser; integer; ident ]
+      in
+      (* Who even needs parser precedence anyways 😎 *)
       let op_ext =
         both
           (choice
@@ -63,6 +73,13 @@ let expr_parser =
                string "-" *> return Sub;
                string "*" *> return Mul;
                string "/" *> return Div;
+               string "==" *> return Eq;
+               string "<" *> return Less;
+               string ">" *> return Greater;
+               keyword "and" *> return And;
+               keyword "or" *> return Or;
+               string "::" *> return Cons;
+               string "++" *> return Concat;
              ])
           simple
       in
@@ -105,7 +122,7 @@ let item_parser =
   *> lift4
        (fun name params ret_ty body -> ItemFun { name; params; ret_ty; body })
        (keyword "fun" *> name)
-       (sep_by (string ",") param |> parens)
+       (sep_by (string ",") param |> parenthesise)
        (string ":" *> ty)
        (string "=" *> expr_parser)
 
