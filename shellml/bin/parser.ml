@@ -13,6 +13,7 @@ let keywords =
       "then";
       "else";
       "Unit";
+      "Bool";
       "Int";
       "String";
       "List";
@@ -20,6 +21,9 @@ let keywords =
       "Fun";
       "And";
       "Or";
+      "unit";
+      "true";
+      "false";
     ]
 
 let whitespace = take_while Char.is_whitespace
@@ -36,9 +40,14 @@ let int_of_string i =
   with _ -> fail "int of string conversion failed"
 
 let integer =
-  let* i = take_while Char.is_digit in
+  let* i = take_while Char.is_digit |> lexeme in
   let+ i = int_of_string i in
   IntLit i
+
+let raw_ident =
+  let* i = name in
+  if Set.mem i keywords then fail ("expected ident, got keyword " ^ i)
+  else return i
 
 (* N.B. let* is just do-notation *)
 
@@ -48,7 +57,6 @@ let ident =
   else return @@ Ident i
 
 let keyword kw =
-  print_endline (dump kw);
   let* i = lexeme name in
   if i = kw then return () else fail ("expected keyword " ^ kw)
 
@@ -59,11 +67,80 @@ let list_literal elem =
   let+ l = string "[" *> many elem <* string "]" in
   List l
 
+let ty =
+  let simple =
+    choice
+      [
+        keyword "Unit" *> return UnitTy;
+        keyword "Bool" *> return BoolTy;
+        keyword "Int" *> return IntTy;
+        keyword "String" *> return StringTy;
+      ]
+  in
+  fix (fun ty_parser ->
+      let list_ty =
+        let+ list_type = keyword "List" *> keyword "of" *> ty_parser in
+        ListTy list_type
+      and fun_ty =
+        let+ in_ty, out_ty =
+          keyword "Fun" *> keyword "of"
+          *> both ty_parser (string "->" *> ty_parser)
+        in
+        FunTy (in_ty, out_ty)
+      in
+      simple <|> list_ty <|> fun_ty)
+
+let lam expr =
+  keyword "fun" *> string "("
+  *> lift4
+       (fun param param_ty ret_ty body -> Lam { param; param_ty; ret_ty; body })
+       raw_ident
+       (string ":" *> ty <* string ")")
+       (string ":" *> ty)
+       (string "->" *> expr)
+
+let let_bind expr =
+  let binding =
+    lift3
+      (fun name ty value -> (name, ty, value))
+      raw_ident
+      (string ":" *> ty)
+      (string "=" *> expr)
+  in
+  keyword "let"
+  *> lift2
+       (fun bindings body -> Let (bindings, body))
+       ((* sep_by1 (string ";") *) List.singleton <$> binding)
+       expr
+
+let if_else expr =
+  keyword "if"
+  *> lift3
+       (fun cond then_ else_ -> IfElse (cond, then_, else_))
+       expr
+       (keyword "then" *> expr)
+       (keyword "else" *> expr)
+
+let ( <?> ) p l =
+  let* remaining = available in
+  let remaining = min remaining 20 in
+  let* s = peek_string remaining in
+  p <?> Printf.sprintf "%s, got: [%s]" l s
+
 let expr_parser =
   fix (fun expr_parser ->
       let simple =
         choice
-          [ parenthesise expr_parser; list_literal expr_parser; integer; ident ]
+          [
+            parenthesise expr_parser;
+            list_literal expr_parser;
+            keyword "unit" *> return Unit;
+            keyword "true" *> return True;
+            keyword "false" *> return False;
+            integer;
+            ident;
+          ]
+        <?> "simple expression"
       in
       (* Who even needs parser precedence anyways 😎 *)
       let op_ext =
@@ -85,46 +162,27 @@ let expr_parser =
           simple
       in
       lift2
-        (fun left ops ->
-          if List.is_empty ops then left
-          else
-            List.fold_left
-              (fun acc (op, right) -> BinOp (acc, op, right))
-              left ops)
-        simple (op_ext |> many)
+        (fun left (* args *) ops ->
+          (* let left = *)
+          (*   List.fold_left (fun acc arg -> Call (acc, arg)) left args *)
+          (* in *)
+          List.fold_right
+            (fun (op, right) acc -> BinOp (acc, op, right))
+            ops left)
+        simple
+        (* (simple |> many) *) (many op_ext)
+      <|> let_bind expr_parser <|> lam expr_parser <|> if_else expr_parser
       (* <?> associates name with parser *)
-      <?> "expression")
+      <?> "complex expression")
 
 let item_parser =
-  let ty =
-    fix (fun ty_parser ->
-        let list_ty =
-          let+ list_type = keyword "List" *> keyword "of" *> ty_parser in
-          ListTy list_type
-        and fun_ty =
-          let+ in_ty, out_ty =
-            keyword "Fun" *> keyword "of"
-            *> both ty_parser (string "->" *> ty_parser)
-          in
-          FunTy (in_ty, out_ty)
-        in
-        choice
-          [
-            keyword "Unit" *> return UnitTy;
-            keyword "Bool" *> return BoolTy;
-            keyword "Int" *> return IntTy;
-            keyword "String" *> return StringTy;
-            list_ty;
-            fun_ty;
-          ])
-  and autocurry name params ret_ty (body : expr) =
+  let autocurry name params ret_ty body =
     (* It was pain and suffering to compute these return types *)
     let fold_ret_ty tys =
       List.fold_right (fun ty acc -> FunTy (ty, acc)) tys ret_ty
     in
     let tys = params |> List.tl |> List.map snd in
     let ret_tys = tys |> unconsing |> List.map fold_ret_ty in
-    List.iter (fun ty -> print_endline (string_of_type ty)) ret_tys;
     match (params, ret_tys) with
     | [], [] -> failwith "impossibru"
     | head :: tail, ret_tys ->
@@ -142,11 +200,11 @@ let item_parser =
           }
     | _ -> failwith "zoinks"
   in
-  let param = both name (string ":" *> ty) in
+  let param = both raw_ident (string ":" *> ty) in
   whitespace
   *> lift4
        (fun name params ret_ty body -> autocurry name params ret_ty body)
-       (keyword "fun" *> name)
+       (keyword "fun" *> raw_ident)
        (sep_by1 (string ",") param |> parenthesise)
        (string ":" *> ty)
        (string "=" *> expr_parser)

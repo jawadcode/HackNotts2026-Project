@@ -44,6 +44,7 @@ and check_expr ctx env expected expr =
 and infer_expr ctx env (* expected *) expr =
   match expr with
   | Unit -> Ok TUnit
+  | True | False -> Ok TBool
   | IntLit _ -> Ok TInt
   | StringLit s -> Ok TString
   | Ident name ->

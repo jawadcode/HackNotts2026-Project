@@ -3,6 +3,8 @@ type item =
 
 and expr =
   | Unit
+  | True
+  | False
   | IntLit of int
   | StringLit of string
   | Ident of string
@@ -59,7 +61,9 @@ and string_of_type = function
         (string_of_type out_ty)
 
 and string_of_expr = function
-  | Unit -> "Unit"
+  | Unit -> "unit"
+  | True -> "true"
+  | False -> "false"
   | IntLit n -> Int.to_string n
   | StringLit s -> "\"" ^ s ^ "\""
   | Ident name -> name
